@@ -31,19 +31,22 @@ class Patient(BaseModel):
     ICU: int
 
 
-@app.on_event("startup")
-def load_model():
+model = None
+
+def get_model():
     global model
-    mlflow.set_tracking_uri("file:./mlruns")
-    model_uri = f"models:/{MODEL_NAME}/Staging"
-    model = mlflow.pyfunc.load_model(model_uri)
-    print("Model loaded:", model_uri)
+    if model is None:
+        mlflow.set_tracking_uri("file:./mlruns")
+        model_uri = f"models:/{MODEL_NAME}/Staging"
+        model = mlflow.pyfunc.load_model(model_uri)
+    return model
 
 
 @app.post("/predict")
 def predict(patient: Patient):
+    mdl = get_model()
     data = pd.DataFrame([patient.dict()])
-    prob = model.predict(data)[0]
+    prob = mdl.predict(data)[0]
     pred = int(prob >= 0.5)
     return {
         "mortality_probability": float(prob),
