@@ -1,0 +1,17 @@
+paths:
+  raw_data: data/raw/covid.csv
+  processed_data: data/processed/clean.csv
+  model_dir: models/
+
+data:
+  unknown_codes: [97, 98, 99]
+  sample_frac: 1.0
+
+target:
+  date_column: DATE_DIED
+  label_column: MORTALITY
+
+training:
+  test_size: 0.2
+  random_state: 42
+
