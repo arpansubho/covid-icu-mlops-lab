@@ -1,5 +1,10 @@
-import pandas as pd
+import os
+import yaml
 import joblib
+import pandas as pd
+import mlflow
+import mlflow.sklearn
+
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
@@ -8,10 +13,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score, f1_score, average_precision_score, confusion_matrix
-import yaml
-import os
-import mlflow
-import mlflow.sklearn
 
 from src.features import get_features_and_target
 
@@ -24,10 +25,16 @@ def load_config(path: str) -> dict:
 def build_preprocessor(numeric_features):
     return ColumnTransformer(
         transformers=[
-            ("num", Pipeline([
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler())
-            ]), numeric_features)
+            (
+                "num",
+                Pipeline(
+                    [
+                        ("imputer", SimpleImputer(strategy="median")),
+                        ("scaler", StandardScaler()),
+                    ]
+                ),
+                numeric_features,
+            )
         ]
     )
 
@@ -50,20 +57,32 @@ def main():
     mlflow.set_tracking_uri("file:./mlruns")
     mlflow.set_experiment("covid-mortality")
 
+    # Allow CI to override data path
     data_path = os.getenv("DATA_PATH", config["paths"]["processed_data"])
     df = pd.read_csv(data_path)
+
     X, y = get_features_and_target(df, config["target"]["label_column"])
+    y = pd.Series(y)
 
     numeric_features = X.columns.tolist()
     preprocessor = build_preprocessor(numeric_features)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=config["training"]["test_size"],
-        random_state=config["training"]["random_state"],
-        stratify=y,
-    )
+    # Handle small datasets safely (CI / tests)
+    if y.value_counts().min() < 2:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X,
+            y,
+            test_size=config["training"]["test_size"],
+            random_state=config["training"]["random_state"],
+        )
+    else:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X,
+            y,
+            test_size=config["training"]["test_size"],
+            random_state=config["training"]["random_state"],
+            stratify=y,
+        )
 
     models = {
         "baseline_logreg": LogisticRegression(max_iter=1000),
@@ -74,10 +93,17 @@ def main():
 
     for name, model in models.items():
         with mlflow.start_run(run_name=name):
-            pipe = Pipeline([
-                ("preprocess", preprocessor),
-                ("model", model),
-            ])
+            pipe = Pipeline(
+                [
+                    ("preprocess", preprocessor),
+                    ("model", model),
+                ]
+            )
+
+            # Skip training if only one class present
+            if pd.Series(y_train).nunique() < 2:
+                print(f"Skipping {name}: only one class in training data")
+                continue
 
             pipe.fit(X_train, y_train)
             metrics = evaluate_model(pipe, X_test, y_test)
@@ -90,7 +116,9 @@ def main():
 
             mlflow.log_artifact("configs/config.yaml")
 
-            model_path = os.path.join(config["paths"]["model_dir"], f"{name}.joblib")
+            model_path = os.path.join(
+                config["paths"]["model_dir"], f"{name}.joblib"
+            )
             joblib.dump(pipe, model_path)
 
             mlflow.sklearn.log_model(pipe, artifact_path="model")
