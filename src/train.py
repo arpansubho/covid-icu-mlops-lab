@@ -50,7 +50,8 @@ def main():
     mlflow.set_tracking_uri("file:./mlruns")
     mlflow.set_experiment("covid-mortality")
 
-    df = pd.read_csv(config["paths"]["processed_data"])
+    data_path = os.getenv("DATA_PATH", config["paths"]["processed_data"])
+    df = pd.read_csv(data_path)
     X, y = get_features_and_target(df, config["target"]["label_column"])
 
     numeric_features = X.columns.tolist()

@@ -1,9 +1,20 @@
 from fastapi.testclient import TestClient
 from src.app import app
 
-client = TestClient(app)
+class DummyModel:
+    def predict(self, X):
+        return [0.2]
 
-def test_predict_schema():
+def test_predict_schema(monkeypatch):
+    from src import app as app_module
+
+    def fake_get_model():
+        return DummyModel()
+
+    monkeypatch.setattr(app_module, "get_model", fake_get_model)
+
+    client = TestClient(app)
+
     sample = {
         "USMER": 1,
         "MEDICAL_UNIT": 1,
