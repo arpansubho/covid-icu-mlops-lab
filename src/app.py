@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import mlflow
 import pandas as pd
+from src.monitoring import log_request, log_prediction
 
 MODEL_NAME = "covid_mortality_model"
 
@@ -45,10 +46,24 @@ def get_model():
 @app.post("/predict")
 def predict(patient: Patient):
     mdl = get_model()
-    data = pd.DataFrame([patient.dict()])
-    prob = mdl.predict(data)[0]
+
+    payload = patient.dict()
+    log_request(payload)
+
+    data = pd.DataFrame([payload])
+
+    # Handle models with or without predict_proba (for tests / dummy model)
+    if hasattr(mdl, "predict_proba"):
+        prob = mdl.predict_proba(data)[0, 1]
+    else:
+        prob = mdl.predict(data)[0]
+
     pred = int(prob >= 0.5)
+
+    log_prediction(pred, float(prob))
+
     return {
         "mortality_probability": float(prob),
         "mortality_prediction": pred,
     }
+
